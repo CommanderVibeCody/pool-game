@@ -7,20 +7,73 @@ Python with **pygame**. **No physics library** is used – the whole simulation
 
 ![Screenshot](docs/screenshot.png)
 
-## Running the game
+## Setup and running
+
+### Requirements
+
+* **Python 3.9 – 3.13** (64-bit recommended). The game depends on
+  [pygame 2.6](https://pypi.org/project/pygame/), which officially requires
+  Python ≥ 3.6 but only ships prebuilt wheels up to Python 3.13. On newer
+  Python versions pip would try to compile pygame from source, which usually
+  fails, so stick to 3.9 – 3.13.
+* Check your version with `python --version` (on macOS/Linux it may be
+  `python3 --version`).
+
+### 1. Create a virtual environment
+
+Run this in the project folder (the one containing `main.py`):
+
+```bash
+python -m venv .venv
+```
+
+On macOS/Linux use `python3` if `python` is not available. The `.venv` folder
+is listed in `.gitignore` and is never committed.
+
+### 2. Activate it
+
+| System | Command |
+|--------|---------|
+| Windows – PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows – cmd | `.venv\Scripts\activate.bat` |
+| macOS / Linux (bash, zsh) | `source .venv/bin/activate` |
+
+When the environment is active, your prompt starts with `(.venv)`.
+
+> **PowerShell note:** if activation fails with "running scripts is disabled
+> on this system", allow local scripts for your user once and try again:
+> `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+
+### 3. Install the dependencies
 
 ```bash
 pip install -r requirements.txt
+```
+
+This installs `pygame` and `pytest` into the virtual environment only.
+
+### 4. Play
+
+```bash
 python main.py
 ```
 
-Requires Python 3.9+.
-
-Run the tests:
+### 5. Run the tests
 
 ```bash
 python -m pytest
 ```
+
+The tests run headless (no window opens).
+
+### 6. Deactivate the environment
+
+```bash
+deactivate
+```
+
+Next time, just activate the environment again (step 2) and run
+`python main.py`; there is no need to reinstall.
 
 ## Controls
 
