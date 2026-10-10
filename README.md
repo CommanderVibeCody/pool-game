@@ -5,7 +5,9 @@ Python with **pygame**. **No physics library** is used – the whole simulation
 (integration, collisions, friction, pockets) is implemented from scratch in
 [`pool/physics.py`](pool/physics.py).
 
-![Screenshot](docs/screenshot.png)
+![Main menu](docs/menu.png)
+
+![In-game](docs/screenshot.png)
 
 ## Setup and running
 
@@ -75,7 +77,33 @@ deactivate
 Next time, just activate the environment again (step 2) and run
 `python main.py`; there is no need to reinstall.
 
-## Controls
+## Main menu
+
+The game starts with an animated main menu. In the background the real
+physics engine plays by itself (attract mode): it breaks a rack, keeps
+shooting the cue ball at random balls and re-racks when needed.
+
+| Menu item | What it does |
+|-----------|--------------|
+| **Play (2 players)** | Starts a new 8-ball match (hot seat) |
+| **How to Play** | Controls and rules overview |
+| **Settings** | Aim guide on/off, FPS counter on/off, menu animation on/off |
+| **Quit** | Closes the game |
+
+Menu navigation:
+
+| Input | Action |
+|-------|--------|
+| `Up` / `Down` (or `W` / `S`), mouse hover | Select an item |
+| `Enter` / `Space`, left click | Confirm |
+| `Left` / `Right` (settings) | Toggle the selected setting |
+| `Esc` | Back (sub-screens) / quit (main menu) |
+
+All screen changes use a smooth fade to black and back.
+
+![How to Play](docs/howto.png)
+
+## Controls in the game
 
 | Input | Action |
 |-------|--------|
@@ -85,11 +113,16 @@ Next time, just activate the environment again (step 2) and run
 | Right mouse button (while charging) | Cancel the shot |
 | Left click (ball in hand) | Place the cue ball |
 | `R` | New game |
-| `Esc` | Quit |
+| `Esc` | Pause menu: **Resume**, **Restart game**, **Main menu** (`Esc` again resumes) |
+
+While the game is paused, the physics is frozen.
 
 While aiming, a guide line shows the cue ball path, a ghost ball at the
 contact point, the direction the object ball will travel (yellow) and the
-deflection of the cue ball (blue).
+deflection of the cue ball (blue). The guide can be switched off in
+**Settings**.
+
+![Pause menu](docs/pause.png)
 
 ## Rules (simplified 8-ball)
 
@@ -168,13 +201,17 @@ the events of the shot (first ball hit, pocketed balls, scratch).
 ## Project structure
 
 ```
-main.py              entry point
+main.py              entry point (starts pool.app)
+pool/app.py          application shell: scenes, fade transitions, main loop
+pool/menu.py         attract-mode background, title, main menu, how-to-play and settings screens
+pool/ui.py           reusable UI widgets (animated menu list, panels, text wrapping)
+pool/settings.py     user settings shared by menu and game
 pool/physics.py      Vec2, Ball, velocity Verlet integration, collisions, pockets
 pool/table.py        table geometry, cushions, pockets, rack
 pool/rules.py        simplified 8-ball rules (pure logic, testable)
 pool/render.py       drawing with pygame primitives (table, balls, cue, HUD)
-pool/game.py         game state machine, input, aim guide, main loop
-tests/               pytest tests for physics, rules and a headless smoke test
+pool/game.py         game state machine, input, aim guide, pause menu
+tests/               pytest tests for physics, rules, menus and a headless smoke test
 ```
 
 ## Tests
@@ -191,3 +228,8 @@ tests/               pytest tests for physics, rules and a headless smoke test
 * full break shot on the real table settles with all balls inside the table
 * rules: scratch/ball in hand, group assignment, wrong ball first, winning/losing on the 8
 * headless smoke test of the whole game (`SDL_VIDEODRIVER=dummy`)
+* menus (headless): keyboard and mouse navigation, hover animation, fade
+  transitions between scenes, input ignored while fading out, settings toggles
+  reaching the game, `Esc` behaviour (quit in the menu, pause in the game),
+  pause menu resume / restart / main menu, physics frozen while paused,
+  attract mode keeps playing

@@ -1,4 +1,4 @@
-"""Game state machine: input handling, shot bookkeeping and the main loop."""
+"""Game state machine: input handling, shot bookkeeping and the pause menu."""
 from __future__ import annotations
 
 import math
@@ -9,7 +9,9 @@ import pygame
 from .physics import Ball, PhysicsParams, PhysicsWorld, Vec2
 from .render import Renderer
 from .rules import EIGHT, Rules, ShotResult
+from .settings import Settings
 from .table import WINDOW_HEIGHT, WINDOW_WIDTH, Table
+from .ui import ACCENT, MenuList, font
 
 FIXED_DT = 1.0 / 120.0
 MAX_SHOT_SPEED = 1500.0  # px/s at full power
@@ -22,9 +24,21 @@ GAME_OVER = "game_over"
 
 
 class Game:
-    def __init__(self) -> None:
+    """One 8-ball match.
+
+    ``handle_event`` returns an action for the app: ``"menu"`` (back to the
+    main menu), ``"quit"`` (window closed) or ``None``.
+    """
+
+    PAUSE_ITEMS = [("resume", "Resume"), ("restart", "Restart game"), ("menu", "Main menu")]
+
+    def __init__(self, settings: Optional[Settings] = None, renderer: Optional[Renderer] = None) -> None:
         self.table = Table()
-        self.renderer: Optional[Renderer] = None
+        self.settings = settings or Settings()
+        self.renderer: Optional[Renderer] = renderer
+        self.paused = False
+        self.pause_menu = MenuList(self.PAUSE_ITEMS, center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 40),
+                                   spacing=64, width=320)
         self.reset()
 
     # ----------------------------------------------------------------- setup
@@ -71,6 +85,9 @@ class Game:
         self.frames_moving = 0
 
     def update(self, dt: float) -> None:
+        if self.paused:
+            self.pause_menu.update(dt)
+            return
         if self.state != MOVING:
             return
         self.accumulator += min(dt, 0.1)
@@ -125,16 +142,34 @@ class Game:
         d = Vec2.from_angle(self.aim_angle)
         return max(0.0, min(MAX_PULL, -(self.mouse - self.charge_start).dot(d)))
 
-    def handle_event(self, event: pygame.event.Event) -> bool:
-        """Process one event. Returns False when the game should quit."""
+    def set_paused(self, paused: bool) -> None:
+        self.paused = paused
+        self.charging = False
+        self.power = 0.0
+        if paused:
+            self.pause_menu.selected = 0
+
+    def handle_event(self, event: pygame.event.Event) -> Optional[str]:
+        """Process one event and return an action for the app (or None)."""
         if event.type == pygame.QUIT:
-            return False
+            return "quit"
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.set_paused(not self.paused)
+            return None
+        if self.paused:
+            action = self.pause_menu.handle_event(event)
+            if action == "resume":
+                self.set_paused(False)
+            elif action == "restart":
+                self.reset()
+                self.set_paused(False)
+            elif action == "menu":
+                return "menu"
+            return None
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                return False
             if event.key == pygame.K_r:
                 self.reset()
-            return True
+            return None
         if event.type == pygame.MOUSEMOTION:
             self.mouse = Vec2(*event.pos)
             if self.state == AIMING and not self.charging:
@@ -164,7 +199,7 @@ class Game:
                 if self.power > 0.02:
                     self.shoot(self.aim_angle, self.power)
                 self.power = 0.0
-        return True
+        return None
 
     # ------------------------------------------------------------ aim guide
     def aim_guide(self) -> Tuple[Vec2, Optional[Vec2], Optional[Vec2], Optional[Vec2]]:
@@ -226,7 +261,8 @@ class Game:
         r.draw_table(screen)
         r.draw_balls(screen, self.balls)
         if self.state == AIMING:
-            r.draw_aim(screen, self.cue.pos, self.aim_guide())
+            if self.settings.show_aim_guide:
+                r.draw_aim(screen, self.cue.pos, self.aim_guide())
             pull = self.current_pull() if self.charging else 0.0
             r.draw_cue_stick(screen, self.cue.pos, self.aim_angle, pull)
         elif self.state == PLACING:
@@ -235,22 +271,13 @@ class Game:
         r.draw_hud(screen, self.rules, self.balls, self.message, self.power, self.state_hint())
         if self.state == GAME_OVER and self.rules.winner is not None:
             r.draw_game_over(screen, f"{Rules.player_name(self.rules.winner)} wins!")
+        if self.paused:
+            self.draw_pause(screen)
 
-
-def run() -> None:
-    pygame.init()
-    pygame.display.set_caption("Pool - 8-Ball (velocity Verlet physics)")
-    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    clock = pygame.time.Clock()
-    game = Game()
-    running = True
-    while running:
-        dt = clock.tick(120) / 1000.0
-        for event in pygame.event.get():
-            if not game.handle_event(event):
-                running = False
-                break
-        game.update(dt)
-        game.draw(screen)
-        pygame.display.flip()
-    pygame.quit()
+    def draw_pause(self, screen: pygame.Surface) -> None:
+        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, (0, 0))
+        title = font(72).render("Paused", True, ACCENT)
+        screen.blit(title, title.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2 - 110)))
+        self.pause_menu.draw(screen)

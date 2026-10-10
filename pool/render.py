@@ -262,7 +262,7 @@ class Renderer:
             pygame.draw.rect(screen, col, fill, border_radius=6)
         pygame.draw.rect(screen, (90, 92, 100), bar, 1, border_radius=6)
         screen.blit(self.font_small.render("Power", True, DIM), (bar.right + 8, bar.y + 1))
-        controls = "Mouse: aim  |  Hold LMB + pull back, release: shoot  |  RMB: cancel  |  R: new game  |  Esc: quit"
+        controls = "Mouse: aim  |  Hold LMB + pull back, release: shoot  |  RMB: cancel  |  R: new game  |  Esc: pause menu"
         c = self.font_tiny.render(controls, True, DIM)
         screen.blit(c, (w - 16 - c.get_width(), h - 32))
 
@@ -272,7 +272,7 @@ class Renderer:
         screen.blit(overlay, (0, 0))
         t = self.font_big.render(text, True, ACCENT)
         screen.blit(t, t.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2 - 10)))
-        s = self.font.render("Press R to play again", True, TEXT)
+        s = self.font.render("Press R to play again or Esc for the menu", True, TEXT)
         screen.blit(s, s.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2 + 30)))
 
 
