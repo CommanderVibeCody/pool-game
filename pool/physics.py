@@ -1,24 +1,29 @@
-"""Hand-written 2D billiard physics based on position Verlet integration.
+"""Hand-written 2D billiard physics based on velocity Verlet integration.
 
-No physics library is used. Every ball stores its current position ``pos``
-and its position from the previous sub-step ``prev``. The velocity is never
-stored explicitly; it is implied by the difference of the two positions:
+No physics library is used. Every ball stores its position ``pos`` and its
+velocity ``vel`` explicitly. One integration sub-step of length ``h`` is the
+classic velocity Verlet scheme:
 
-    v = (pos - prev) / h
+    a_n     = a(v_n)
+    x_{n+1} = x_n + v_n * h + 0.5 * a_n * h**2
+    a_{n+1} = a(v_n + a_n * h)              (predicted velocity)
+    v_{n+1} = v_n + 0.5 * (a_n + a_{n+1}) * h
 
-One integration sub-step (position Verlet with velocity damping) is:
+The acceleration only comes from table friction and acts against the
+direction of motion:
 
-    x_next = x + (x - x_prev) * damping + a * h**2
+    a(v) = -(mu + k * |v|) * v / |v|
 
-where ``a`` is the rolling-friction deceleration (opposite to the direction of
-motion) and ``damping = exp(-k * h)`` models speed-proportional losses.
+``mu`` is a constant rolling-friction deceleration and ``k`` a
+speed-proportional damping coefficient. When friction would stop the ball
+within the sub-step, the ball is moved by the remaining stopping distance and
+put to rest, so friction never reverses the motion.
 
-Collisions are handled after each integration sub-step:
+Collisions are handled after each integration sub-step and act directly on
+the velocity:
 
-* Ball-ball: the overlap is removed (positional correction, ``pos`` and
-  ``prev`` are shifted together so the implied velocity is untouched), then
-  an impulse along the contact normal is applied with a coefficient of
-  restitution. Changing a velocity in Verlet form means rewriting ``prev``.
+* Ball-ball: the overlap is removed (positional correction), then an impulse
+  along the contact normal is applied with a coefficient of restitution.
 * Ball-cushion: cushions are line segments. The closest point on the segment
   gives the contact normal; the normal velocity component is reflected and
   scaled by the cushion restitution.
@@ -92,12 +97,12 @@ class Vec2:
 
 
 class Ball:
-    """A ball in Verlet representation (current and previous position)."""
+    """A ball with explicit position and velocity (px and px/s)."""
 
     def __init__(self, number: int, pos: Iterable[float], radius: float, mass: float = 1.0) -> None:
         self.number = number
         self.pos = Vec2(*pos)
-        self.prev = self.pos.copy()
+        self.vel = Vec2()
         self.radius = radius
         self.mass = mass
         self.pocketed = False
@@ -107,23 +112,16 @@ class Ball:
     def is_cue(self) -> bool:
         return self.number == 0
 
-    def velocity(self, h: float) -> Vec2:
-        return (self.pos - self.prev) / h
-
-    def set_velocity(self, v: Vec2, h: float) -> None:
-        self.prev = self.pos - v * h
+    @property
+    def speed(self) -> float:
+        return self.vel.length()
 
     def place(self, pos: Iterable[float]) -> None:
         """Teleport the ball and put it at rest."""
         self.pos = Vec2(*pos)
-        self.prev = self.pos.copy()
+        self.vel = Vec2()
         self.pocketed = False
         self.pocket_index = None
-
-    def shift(self, d: Vec2) -> None:
-        """Move the ball without changing its implied velocity."""
-        self.pos = self.pos + d
-        self.prev = self.prev + d
 
 
 @dataclass
@@ -206,31 +204,45 @@ class PhysicsWorld:
         h = self.h
         for _ in range(self.params.substeps):
             self._integrate(h)
-            self._collide_balls(h, events)
-            self._collide_cushions(h, events)
+            self._collide_balls(events)
+            self._collide_cushions(events)
             self._detect_pockets(events)
         return events
 
+    def friction_acceleration(self, v: Vec2) -> Vec2:
+        """Table friction: constant rolling resistance plus linear damping."""
+        speed = v.length()
+        if speed == 0.0:
+            return Vec2()
+        p = self.params
+        return v * (-(p.rolling_friction + p.linear_damping * speed) / speed)
+
     def _integrate(self, h: float) -> None:
         p = self.params
-        damping = math.exp(-p.linear_damping * h)
-        friction_dv = p.rolling_friction * h  # speed lost per sub-step
         for b in self.balls:
             if b.pocketed:
                 continue
-            disp = b.pos - b.prev
-            disp_len = disp.length()
-            speed = disp_len / h
-            if speed < p.stop_speed or speed * damping - friction_dv <= p.stop_speed:
-                b.prev = b.pos.copy()  # come to rest, never reverse direction
+            v = b.vel
+            speed = v.length()
+            if speed == 0.0 or speed < p.stop_speed:
+                b.vel = Vec2()
                 continue
-            direction = disp / disp_len
-            accel = direction * (-p.rolling_friction)
-            new_pos = b.pos + disp * damping + accel * (h * h)
-            b.prev = b.pos
-            b.pos = new_pos
+            decel = p.rolling_friction + p.linear_damping * speed
+            if decel * h >= speed:
+                # Friction stops the ball inside this sub-step: move it by the
+                # stopping distance (exact for constant deceleration) and rest.
+                b.pos = b.pos + v * (0.5 * speed / decel)
+                b.vel = Vec2()
+                continue
+            a0 = self.friction_acceleration(v)
+            b.pos = b.pos + v * h + a0 * (0.5 * h * h)
+            a1 = self.friction_acceleration(v + a0 * h)
+            new_vel = v + (a0 + a1) * (0.5 * h)
+            if new_vel.dot(v) <= 0.0 or new_vel.length() < p.stop_speed:
+                new_vel = Vec2()
+            b.vel = new_vel
 
-    def _collide_balls(self, h: float, events: StepEvents) -> None:
+    def _collide_balls(self, events: StepEvents) -> None:
         e = self.params.ball_restitution
         active = self.active_balls()
         n = len(active)
@@ -250,19 +262,17 @@ class PhysicsWorld:
                 inv_sum = inv_a + inv_b
                 # positional correction (keeps the implied velocities)
                 overlap = min_dist - dist
-                a.shift(normal * (-overlap * inv_a / inv_sum))
-                b.shift(normal * (overlap * inv_b / inv_sum))
-                # impulse along the normal
-                va = a.velocity(h)
-                vb = b.velocity(h)
-                approach = (va - vb).dot(normal)
+                a.pos = a.pos - normal * (overlap * inv_a / inv_sum)
+                b.pos = b.pos + normal * (overlap * inv_b / inv_sum)
+                # impulse along the normal, applied directly to the velocities
+                approach = (a.vel - b.vel).dot(normal)
                 if approach > 0.0:
                     j_imp = (1.0 + e) * approach / inv_sum
-                    a.set_velocity(va - normal * (j_imp * inv_a), h)
-                    b.set_velocity(vb + normal * (j_imp * inv_b), h)
+                    a.vel = a.vel - normal * (j_imp * inv_a)
+                    b.vel = b.vel + normal * (j_imp * inv_b)
                     events.ball_hits.append((a.number, b.number))
 
-    def _collide_cushions(self, h: float, events: StepEvents) -> None:
+    def _collide_cushions(self, events: StepEvents) -> None:
         e = self.params.cushion_restitution
         for b in self.balls:
             if b.pocketed:
@@ -278,11 +288,10 @@ class PhysicsWorld:
                     normal = d / dist
                 else:
                     normal = (seg.b - seg.a).perp().normalized()
-                b.shift(normal * (b.radius - dist))
-                v = b.velocity(h)
-                vn = v.dot(normal)
+                b.pos = b.pos + normal * (b.radius - dist)
+                vn = b.vel.dot(normal)
                 if vn < 0.0:
-                    b.set_velocity(v - normal * ((1.0 + e) * vn), h)
+                    b.vel = b.vel - normal * ((1.0 + e) * vn)
                     events.cushion_hits.append(b.number)
 
     def _detect_pockets(self, events: StepEvents) -> None:
@@ -293,7 +302,7 @@ class PhysicsWorld:
             if idx is not None:
                 b.pocketed = True
                 b.pocket_index = idx
-                b.prev = b.pos.copy()
+                b.vel = Vec2()
                 events.pocketed.append((b.number, idx))
 
     def _pocket_for(self, b: Ball) -> Optional[int]:
@@ -311,18 +320,15 @@ class PhysicsWorld:
 
     # --------------------------------------------------------------- queries
     def all_stopped(self) -> bool:
-        h = self.h
         limit = self.params.stop_speed
-        return all(b.velocity(h).length() < limit for b in self.balls if not b.pocketed)
+        return all(b.speed < limit for b in self.balls if not b.pocketed)
 
     def kinetic_energy(self) -> float:
-        h = self.h
-        return sum(0.5 * b.mass * b.velocity(h).length_sq() for b in self.balls if not b.pocketed)
+        return sum(0.5 * b.mass * b.vel.length_sq() for b in self.balls if not b.pocketed)
 
     def momentum(self) -> Vec2:
-        h = self.h
         total = Vec2()
         for b in self.balls:
             if not b.pocketed:
-                total = total + b.velocity(h) * b.mass
+                total = total + b.vel * b.mass
         return total

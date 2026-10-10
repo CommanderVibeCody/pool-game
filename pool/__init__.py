@@ -1,1 +1,1 @@
-"""Pool / 8-ball game with hand-written Verlet physics."""
+"""Pool / 8-ball game with hand-written velocity Verlet physics."""

@@ -62,7 +62,7 @@ class Game:
     # ---------------------------------------------------------------- shots
     def shoot(self, angle: float, power: float) -> None:
         power = max(0.0, min(1.0, power))
-        self.cue.set_velocity(Vec2.from_angle(angle, MAX_SHOT_SPEED * power), self.world.h)
+        self.cue.vel = Vec2.from_angle(angle, MAX_SHOT_SPEED * power)
         self.state = MOVING
         self.shot_first_hit = None
         self.shot_pocketed = []
@@ -239,7 +239,7 @@ class Game:
 
 def run() -> None:
     pygame.init()
-    pygame.display.set_caption("Pool - 8-Ball (Verlet physics)")
+    pygame.display.set_caption("Pool - 8-Ball (velocity Verlet physics)")
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     clock = pygame.time.Clock()
     game = Game()

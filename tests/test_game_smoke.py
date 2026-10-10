@@ -37,5 +37,4 @@ def test_headless_break_and_shots():
         game.draw(screen)
         game.shoot(game.aim_angle, 0.6)
         run_until_stopped(game, screen)
-    pygame.image.save(screen, "screenshot_test.png")
     pygame.quit()

@@ -1,4 +1,4 @@
-# Pool – 8-Ball in Pygame with hand-written Verlet physics
+# Pool – 8-Ball in Pygame with hand-written velocity Verlet physics
 
 A complete pool / billiards game (simplified 8-ball, 2 players, hot seat) written in
 Python with **pygame**. **No physics library** is used – the whole simulation
@@ -53,46 +53,52 @@ deflection of the cue ball (blue).
   Pocketing it too early or together with a foul loses. An 8-ball pocketed on
   the break is re-spotted.
 
-## Physics: Verlet integration
+## Physics: velocity Verlet integration
 
-Every ball stores only its **current position** `x` and its **position from the
-previous sub-step** `x_prev`. The velocity is implicit:
+Every ball stores its **position** `x` and its **velocity** `v` explicitly
+(pixels and pixels per second). One frame of the simulation uses a **fixed time
+step** (`1/120 s`) split into **4 sub-steps** (`h = 1/480 s`), which keeps the
+simulation deterministic and prevents fast balls from tunnelling through each
+other. Each sub-step does:
 
-```
-v = (x - x_prev) / h
-```
-
-One frame of the simulation uses a **fixed time step** (`1/120 s`) split into
-**4 sub-steps** (`h = 1/480 s`), which keeps the simulation deterministic and
-prevents fast balls from tunnelling through each other. Each sub-step does:
-
-1. **Integration (position Verlet with damping)**
+1. **Integration (velocity Verlet)**
 
    ```
-   x_next = x + (x - x_prev) * exp(-k*h) + a * h²
+   a_n     = a(v_n)
+   x_{n+1} = x_n + v_n·h + ½·a_n·h²
+   a_{n+1} = a(v_n + a_n·h)          (acceleration at the predicted velocity)
+   v_{n+1} = v_n + ½·(a_n + a_{n+1})·h
    ```
 
-   * `a = -μ · v/|v|` is the constant rolling-friction deceleration
-     (`μ = 110 px/s²`).
-   * `exp(-k*h)` models speed-proportional losses (`k = 0.3 1/s`).
-   * If the speed drops below a **stop threshold** (`4 px/s`) – or friction would
-     reverse the motion in this step – the ball is put to rest (`x_prev = x`).
+   The only force on a rolling ball is table friction, acting against the
+   direction of motion:
+
+   ```
+   a(v) = -(μ + k·|v|) · v/|v|
+   ```
+
+   * `μ = 110 px/s²` is a constant rolling-friction deceleration.
+   * `k = 0.3 1/s` models speed-proportional losses (damping).
+   * If friction would stop the ball within the current sub-step, the ball is
+     moved by the remaining stopping distance and put to rest, so friction
+     never reverses the motion. Below the **stop threshold** (`4 px/s`) a ball
+     is put to rest as well.
+   * For a pure constant deceleration the scheme is exact:
+     `x(t) = v0·t − ½·μ·t²`, stopping distance `v0² / (2μ)` (verified by a test).
 
 2. **Ball–ball collisions** (all balls have equal mass)
    * *Positional correction:* overlapping balls are pushed apart along the
-     contact normal. `x` and `x_prev` are shifted together, so the implicit
-     velocity is not changed.
-   * *Impulse:* with normal `n` and relative velocity `v_rel = (v_a - v_b)·n`
-     (only when the balls approach each other):
+     contact normal (weighted by inverse mass).
+   * *Impulse* applied directly to the velocities, with normal `n` and relative
+     velocity `v_rel = (v_a - v_b)·n` (only when the balls approach each other):
 
      ```
-     j   = (1 + e) · v_rel / (1/m_a + 1/m_b)
+     j    = (1 + e) · v_rel / (1/m_a + 1/m_b)
      v_a' = v_a - j/m_a · n
      v_b' = v_b + j/m_b · n
      ```
 
-     with restitution `e = 0.95`. In Verlet form a new velocity is applied by
-     rewriting the previous position: `x_prev = x - v'·h`.
+     with restitution `e = 0.95`.
 
 3. **Cushion collisions:** cushions are line segments with gaps at the pocket
    mouths. The closest point on the segment yields the normal; the ball is
@@ -110,7 +116,7 @@ the events of the shot (first ball hit, pocketed balls, scratch).
 
 ```
 main.py              entry point
-pool/physics.py      Vec2, Ball, Verlet integration, collisions, pockets
+pool/physics.py      Vec2, Ball, velocity Verlet integration, collisions, pockets
 pool/table.py        table geometry, cushions, pockets, rack
 pool/rules.py        simplified 8-ball rules (pure logic, testable)
 pool/render.py       drawing with pygame primitives (table, balls, cue, HUD)
@@ -121,6 +127,8 @@ tests/               pytest tests for physics, rules and a headless smoke test
 ## Tests
 
 * free motion without friction is exact
+* velocity Verlet matches the analytic solution under constant deceleration (position, velocity, stopping distance)
+* velocity Verlet matches exponential decay under linear damping
 * head-on elastic collision swaps velocities
 * momentum conservation (and no energy gain) in oblique collisions
 * overlap resolution
