@@ -5,4 +5,4 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
-screenshot*.png
+/screenshot*.png
